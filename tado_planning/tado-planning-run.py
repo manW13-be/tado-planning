@@ -831,6 +831,32 @@ def push_ha_sensors():
 # AUTHENTICATION
 # ---------------------------------------------------------------------------
 
+def _extract_home_id(me: dict) -> int | None:
+    """Try multiple field names to extract home ID from /me response."""
+    if me.get("homes"):
+        return me["homes"][0]["id"]
+    if "homeId" in me:
+        return me["homeId"]
+    if isinstance(me.get("home"), dict):
+        return me["home"].get("id")
+    if me.get("homeIds"):
+        return me["homeIds"][0]
+    return None
+
+
+def _patch_tado_with_me(tado: Tado, me: dict, label: str) -> bool:
+    """Patch tado._http with home ID extracted from /me dict. Returns True on success."""
+    home_id = _extract_home_id(me)
+    if home_id:
+        log(f"[AUTH] {label} — home ID={home_id}")
+        tado._http._id    = home_id
+        tado._http._x_api = False
+        tado._http._device_activation_status = DeviceActivationStatus.COMPLETED
+        return True
+    log(f"[AUTH] /me response has no recognised home ID field: {me}")
+    return False
+
+
 def get_tado_client() -> Tado:
     # Patch PyTado's client_id with the value from tado_credentials.json so
     # every OAuth call (device auth, token refresh, URL construction) uses it.
@@ -847,17 +873,14 @@ def get_tado_client() -> Tado:
     if status.value == "NOT_STARTED":
         log("[AUTH] Existing token detected, initialising...")
         tado._http._device_activation_status = DeviceActivationStatus.COMPLETED
-        req         = TadoRequest()
-        req.command = "me"
-        req.action  = Action.GET
-        req.domain  = Domain.ME
-        req.mode    = Mode.OBJECT
+        req        = TadoRequest()
+        req.action = Action.GET
+        req.domain = Domain.ME
+        req.mode   = Mode.OBJECT
         try:
             me = tado._http.request(req)
-            if "homes" not in me:
-                raise KeyError("homes")
-            tado._http._id    = me["homes"][0]["id"]
-            tado._http._x_api = False
+            if not _patch_tado_with_me(tado, me, "Token valid"):
+                raise RuntimeError("no home ID in /me")
         except Exception as e:
             log(f"[AUTH] Invalid or expired token ({e}), re-authenticating...")
             if os.path.exists(TOKEN_FILE):
@@ -897,6 +920,23 @@ def get_tado_client() -> Tado:
             try:
                 tado.device_activation()
                 break
+            except KeyError:
+                # User authenticated but PyTado's _get_id() failed (API format changed).
+                # The token was already saved — try to extract home ID manually.
+                log("[AUTH] Authentication succeeded but /me format unexpected — extracting home ID manually...")
+                try:
+                    req        = TadoRequest()
+                    req.action = Action.GET
+                    req.domain = Domain.ME
+                    req.mode   = Mode.OBJECT
+                    me = tado._http.request(req)
+                    if _patch_tado_with_me(tado, me, "Fallback home ID"):
+                        break
+                except Exception as e2:
+                    log(f"[AUTH] Manual /me extraction failed: {e2}")
+                time.sleep(10)
+                if not os.path.exists(TOKEN_FILE):
+                    tado = Tado(token_file_path=TOKEN_FILE)
             except Exception:
                 if not _auth_not_validated_logged:
                     log("[AUTH] Not validated yet — retrying every 10s…")
@@ -906,7 +946,11 @@ def get_tado_client() -> Tado:
                     log(f"[AUTH] URL: {url}")
                     _push_ha_auth_sensor(True, url)
                 time.sleep(10)
-                tado = Tado(token_file_path=TOKEN_FILE)
+                # Only create a new Tado instance if no token was saved yet.
+                # If TOKEN_FILE exists, the user already authenticated and creating
+                # a new Tado() would call _device_ready() → crash.
+                if not os.path.exists(TOKEN_FILE):
+                    tado = Tado(token_file_path=TOKEN_FILE)
 
     _clear_auth_status()
     log("[AUTH] Authentication successful.")
