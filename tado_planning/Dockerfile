@@ -4,7 +4,8 @@ RUN apt-get update \
     && apt-get install -y --no-install-recommends jq curl \
     && rm -rf /var/lib/apt/lists/*
 
-RUN pip install --no-cache-dir flask requests "python-tado>=0.18"
+RUN pip install --no-cache-dir flask requests \
+    "git+https://github.com/manW13-be/python-tado.git"
 
 COPY tado-planning-run.py /tado-planning-run.py
 COPY tado-planning-cfg.py /tado-planning-cfg.py

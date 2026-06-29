@@ -53,7 +53,7 @@ import platform
 import time
 
 from PyTado.interface.interface import Tado
-from PyTado.http import TadoRequest, Action, Mode, Domain, DeviceActivationStatus
+from PyTado.http import TadoRequest, Action, Mode
 
 # ---------------------------------------------------------------------------
 # PATHS
@@ -831,80 +831,14 @@ def push_ha_sensors():
 # AUTHENTICATION
 # ---------------------------------------------------------------------------
 
-def _extract_home_id(me: dict) -> int | None:
-    """Try multiple field names to extract home ID from /me response."""
-    if me.get("homes"):
-        return me["homes"][0]["id"]
-    if "homeId" in me:
-        return me["homeId"]
-    if isinstance(me.get("home"), dict):
-        return me["home"].get("id")
-    if me.get("homeIds"):
-        return me["homeIds"][0]
-    return None
-
-
-def _patch_tado_with_me(tado: Tado, me: dict, label: str) -> bool:
-    """Patch tado._http with home ID extracted from /me dict. Returns True on success."""
-    home_id = _extract_home_id(me)
-    if home_id:
-        log(f"[AUTH] {label} — home ID={home_id}")
-        tado._http._id    = home_id
-        tado._http._x_api = False
-        tado._http._device_activation_status = DeviceActivationStatus.COMPLETED
-        return True
-    log(f"[AUTH] /me response has no recognised home ID field: {me}")
-    return False
-
-
 def get_tado_client() -> Tado:
-    # Patch PyTado's client_id with the value from tado_credentials.json so
-    # every OAuth call (device auth, token refresh, URL construction) uses it.
     client_id = load_credentials()
-    try:
-        import PyTado.const as _pytado_const
-        _pytado_const.CLIENT_ID_DEVICE = client_id
-    except Exception:
-        pass
+    tado = Tado(token_file_path=TOKEN_FILE, client_id=client_id)
 
-    tado   = Tado(token_file_path=TOKEN_FILE)
-    status = tado.device_activation_status()
-
-    if status.value == "NOT_STARTED":
-        log("[AUTH] Existing token detected, initialising...")
-        tado._http._device_activation_status = DeviceActivationStatus.COMPLETED
-        req        = TadoRequest()
-        req.action = Action.GET
-        req.domain = Domain.ME
-        req.mode   = Mode.OBJECT
-        try:
-            me = tado._http.request(req)
-            if not _patch_tado_with_me(tado, me, "Token valid"):
-                raise RuntimeError("no home ID in /me")
-        except Exception as e:
-            log(f"[AUTH] Invalid or expired token ({e}), re-authenticating...")
-            if os.path.exists(TOKEN_FILE):
-                os.remove(TOKEN_FILE)
-            tado   = Tado(token_file_path=TOKEN_FILE)
-            status = tado.device_activation_status()
-            if status.value != "PENDING":
-                log(f"[AUTH] Unexpected status after token reset: {status}")
-                sys.exit(1)
-
-    if tado.device_activation_status().value == "PENDING":
+    if tado.device_activation_status() == "PENDING":
         global _auth_not_validated_logged
         _auth_not_validated_logged = False
         url = tado.device_verification_url()
-
-        # PyTado ≤0.19.2 omits client_id from the verification URL, causing
-        # Tado's auth server to reject it with missing_client_id.
-        if url and "client_id" not in url:
-            sep = "&" if "?" in url else "?"
-            url = url + sep + f"client_id={client_id}"
-            try:
-                tado._http._device_verification_url = url
-            except Exception:
-                pass
 
         log("[AUTH] Tado token absent, invalid or expired.")
         log(f"[AUTH] URL: {url}")
@@ -920,37 +854,28 @@ def get_tado_client() -> Tado:
             try:
                 tado.device_activation()
                 break
-            except KeyError:
-                # User authenticated but PyTado's _get_id() failed (API format changed).
-                # The token was already saved — try to extract home ID manually.
-                log("[AUTH] Authentication succeeded but /me format unexpected — extracting home ID manually...")
-                try:
-                    req        = TadoRequest()
-                    req.action = Action.GET
-                    req.domain = Domain.ME
-                    req.mode   = Mode.OBJECT
-                    me = tado._http.request(req)
-                    if _patch_tado_with_me(tado, me, "Fallback home ID"):
-                        break
-                except Exception as e2:
-                    log(f"[AUTH] Manual /me extraction failed: {e2}")
-                time.sleep(10)
-                if not os.path.exists(TOKEN_FILE):
-                    tado = Tado(token_file_path=TOKEN_FILE)
             except Exception:
                 if not _auth_not_validated_logged:
                     log("[AUTH] Not validated yet — retrying every 10s…")
                     _auth_not_validated_logged = True
                 _retry += 1
-                if _retry % 6 == 0:  # repeat URL every ~60s
+                if _retry % 6 == 0:
                     log(f"[AUTH] URL: {url}")
                     _push_ha_auth_sensor(True, url)
                 time.sleep(10)
-                # Only create a new Tado instance if no token was saved yet.
-                # If TOKEN_FILE exists, the user already authenticated and creating
-                # a new Tado() would call _device_ready() → crash.
                 if not os.path.exists(TOKEN_FILE):
-                    tado = Tado(token_file_path=TOKEN_FILE)
+                    tado = Tado(token_file_path=TOKEN_FILE, client_id=client_id)
+                    new_url = tado.device_verification_url()
+                    if new_url and new_url != url:
+                        url = new_url
+                        _auth_not_validated_logged = False
+                        log(f"[AUTH] New device code — URL: {url}")
+                        _write_auth_status(url)
+                        _push_ha_auth_sensor(True, url)
+                        try:
+                            webbrowser.open_new_tab(url)
+                        except Exception:
+                            pass
 
     _clear_auth_status()
     log("[AUTH] Authentication successful.")
