@@ -863,19 +863,23 @@ def get_tado_client() -> Tado:
                     log(f"[AUTH] URL: {url}")
                     _push_ha_auth_sensor(True, url)
                 time.sleep(10)
-                if not os.path.exists(TOKEN_FILE):
-                    tado = Tado(token_file_path=TOKEN_FILE, client_id=client_id)
-                    new_url = tado.device_verification_url()
-                    if new_url and new_url != url:
-                        url = new_url
-                        _auth_not_validated_logged = False
-                        log(f"[AUTH] New device code — URL: {url}")
-                        _write_auth_status(url)
-                        _push_ha_auth_sensor(True, url)
-                        try:
-                            webbrowser.open_new_tab(url)
-                        except Exception:
-                            pass
+                # Always recreate: handles both "code expired" (no token) and
+                # "_device_ready() failed after auth" (token exists but /me failed).
+                # The constructor's try/except will deal with either case.
+                tado = Tado(token_file_path=TOKEN_FILE, client_id=client_id)
+                if tado.device_activation_status() == "COMPLETED":
+                    break  # constructor succeeded — /me worked this time
+                new_url = tado.device_verification_url()
+                if new_url and new_url != url:
+                    url = new_url
+                    _auth_not_validated_logged = False
+                    log(f"[AUTH] New device code — URL: {url}")
+                    _write_auth_status(url)
+                    _push_ha_auth_sensor(True, url)
+                    try:
+                        webbrowser.open_new_tab(url)
+                    except Exception:
+                        pass
 
     _clear_auth_status()
     log("[AUTH] Authentication successful.")
