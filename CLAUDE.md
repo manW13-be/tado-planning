@@ -35,6 +35,12 @@ tado = Tado(token_file_path=TOKEN_FILE, client_id=client_id)
 
 Le form-encoding (`application/x-www-form-urlencoded`) est correct pour le **refresh token** et le **device authorization** mais **pas** pour le **polling** du device code. L'endpoint de polling (`_check_device_activation`) attend des `params=` (query string), pas un form body. Si on uniformise en form-encoded partout, le polling casse silencieusement — l'utilisateur peut s'authentifier dans le navigateur mais le script ne le détecte jamais.
 
+### Accès HA
+
+SSH : `ssh admin@ha2.local`
+Repo sur HA : `/config/tado-planning/`
+Run hors docker : `ssh admin@ha2.local "cd /config/tado-planning && ./tado_planning/run.sh"`
+
 ### Sources locales
 
 - `/Users/emmanuel/Developer/tado-test/` — repo git source du fork (`manW13-be/python-tado`), branche `main`
