@@ -43,8 +43,8 @@ Run hors docker : `ssh admin@ha2.local "cd /config/tado-planning && ./tado_plann
 
 ### Sources locales
 
-- `/Users/emmanuel/Developer/tado-test/` — repo git source du fork (`manW13-be/python-tado`), branche `main`
-- `/Users/emmanuel/Developer/PyTado/` — clone de `manW13-be/PyTado` (fork de wmalgadey v1.0.0), branche `fix/device-flow-client-id-token-refresh` pour la PR #314 upstream — **ne pas installer depuis ce repo dans tado-planning**
+- `/Users/emmanuel/Developer/HomeWork/Domotic@VoetHome/tado-test/` — repo git source du fork (`manW13-be/python-tado`), branche `main`
+- `/Users/emmanuel/Developer/HomeWork/Domotic@VoetHome/_dependencies/PyTado/` — clone de `manW13-be/PyTado` (fork de wmalgadey v1.0.0), branche `fix/device-flow-client-id-token-refresh` pour la PR #314 upstream — **ne pas installer depuis ce repo dans tado-planning**
 
 ### Statut upstream
 

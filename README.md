@@ -202,6 +202,19 @@ tado-planning runs on **Home Assistant** (as an add-on) or on **macOS** (via lau
 
 ---
 
+## Files to fill in (never committed)
+
+tado-planning only has one mode: it drives Tado through the Tado cloud.
+
+| File | Needed when | How |
+|---|---|---|
+| `tado_credentials.json` | Always | Copy `tado_credentials.json.template` and set the Tado `client_id`. macOS: project root. Home Assistant: `/config/tado-planning/` |
+| `tado_refresh_token` | Never by hand | Written by the program after the first login in the browser, then renewed at each run |
+
+No Home Assistant token is needed: inside the add-on, Home Assistant provides its own access.
+
+---
+
 ## Setup — Home Assistant
 
 ### Step 1 — Add the repository and install
